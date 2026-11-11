@@ -1,0 +1,32 @@
+[project]
+name = "mockmate-backend"
+version = "0.1.0"
+description = "MockMate AI API — interviews, evaluation and reports."
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "SIM", "RUF"]
+ignore = [
+  "B008",    # FastAPI dependencies are called in argument defaults by design
+  "RUF001",  # allow non-ASCII copy (Hindi/regional labels appear in seeds)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*" = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+ignore_missing_imports = true

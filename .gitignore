@@ -1,0 +1,44 @@
+# Environment
+.env
+.env.*
+!.env.example
+backend/.env
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+npm-debug.log*
+frontend/playwright-report/
+frontend/test-results/
+frontend/coverage/
+next-env.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv*/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+site-packages/
+
+# Local data
+storage/
+backend/storage/
+*.sqlite3
+pgdata/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local canvas artefacts
+.kombai/tmp/

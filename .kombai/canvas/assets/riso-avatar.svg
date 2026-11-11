@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+  <defs>
+    <!-- Coarse riso halftone dot pattern in dark ink -->
+    <pattern id="riso-dots" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <circle cx="2" cy="2" r="1.8" fill="#1D1411" />
+      <circle cx="6" cy="6" r="1.8" fill="#1D1411" />
+    </pattern>
+  </defs>
+
+  <!-- Background field: Coral (#FE8B65) -->
+  <rect width="240" height="240" fill="#FE8B65" />
+
+  <!-- Layer 1: Misregistered shadow/ghost print (Indigo #4F46E5 offset by +2.5px, +2.5px) -->
+  <g transform="translate(2.5, 2.5)" opacity="0.38">
+    <!-- Sound Rings Ghost -->
+    <circle cx="120" cy="100" r="88" fill="none" stroke="#4F46E5" stroke-width="5" />
+    <circle cx="120" cy="100" r="72" fill="none" stroke="#4F46E5" stroke-width="4.5" />
+    <circle cx="120" cy="100" r="56" fill="none" stroke="#4F46E5" stroke-width="4" />
+
+    <!-- Shoulders / Torso Silhouette Ghost -->
+    <path d="M 28 240 C 32 196 68 180 120 180 C 172 180 208 196 212 240 Z" fill="#4F46E5" />
+
+    <!-- Neck & Head Planes Ghost -->
+    <path d="M 102 152 L 102 184 L 138 184 L 138 152 Z" fill="#4F46E5" />
+    <path d="M 120 46 C 88 46 72 74 72 110 C 72 144 94 168 120 168 C 146 168 168 144 168 110 C 168 74 152 46 120 46 Z" fill="#4F46E5" />
+
+    <!-- Headset Band & Cups Ghost -->
+    <path d="M 64 104 C 64 62 88 40 120 40 C 152 40 176 62 176 104" fill="none" stroke="#4F46E5" stroke-width="7" stroke-linecap="round" />
+    <rect x="58" y="90" width="14" height="32" rx="7" fill="#4F46E5" />
+    <rect x="168" y="90" width="14" height="32" rx="7" fill="#4F46E5" />
+    <!-- Mic Boom Ghost -->
+    <path d="M 65 112 C 65 142 86 150 114 150" fill="none" stroke="#4F46E5" stroke-width="4.5" stroke-linecap="round" />
+    <rect x="110" y="145" width="14" height="10" rx="4" fill="#4F46E5" />
+  </g>
+
+  <!-- Layer 2: Concentric Sound Rings (Indigo #4F46E5) -->
+  <g fill="none" stroke="#4F46E5">
+    <circle cx="120" cy="100" r="88" stroke-width="5" />
+    <circle cx="120" cy="100" r="72" stroke-width="4.5" />
+    <circle cx="120" cy="100" r="56" stroke-width="4" />
+  </g>
+
+  <!-- Layer 3: Base Bust / Body Planes -->
+  <!-- Left Torso / Shoulder - Light Plane (Peach #FEBE9B) -->
+  <path d="M 28 240 C 32 196 68 180 120 180 L 120 240 Z" fill="#FEBE9B" />
+  <!-- Right Torso / Shoulder - Dark Shade (Ink #1D1411) -->
+  <path d="M 120 180 C 172 180 208 196 212 240 L 120 240 Z" fill="#1D1411" />
+
+  <!-- Neck - Divided into light and dark planes -->
+  <path d="M 102 152 L 102 184 L 120 184 L 120 152 Z" fill="#FEBE9B" />
+  <path d="M 120 152 L 120 184 L 138 184 L 138 152 Z" fill="#1D1411" />
+
+  <!-- Layer 4: Geometric Head Planes (Abstract face, faceted angled planes) -->
+  <!-- Left light plane (Peach #FEBE9B): forehead, cheek, jaw -->
+  <path d="M 120 46 C 88 46 72 74 72 110 C 72 144 94 168 120 168 L 120 128 L 106 100 L 120 46 Z" fill="#FEBE9B" />
+  <!-- Upper Right mid plane (Peach #FEBE9B) -->
+  <path d="M 120 46 L 106 100 L 142 86 L 164 74 C 153 54 138 46 120 46 Z" fill="#FEBE9B" />
+
+  <!-- Deep shadow planes (Ink #1D1411) -->
+  <!-- Right temple / cheek shadow -->
+  <path d="M 142 86 L 106 100 L 120 128 L 148 116 L 168 110 C 168 96 166 84 164 74 Z" fill="#1D1411" />
+  <!-- Lower right chin / jaw shadow -->
+  <path d="M 120 128 L 120 168 C 146 168 168 144 168 110 L 148 116 Z" fill="#1D1411" />
+
+  <!-- Layer 5: Coarse Risograph Halftone Screen on the Shadow Planes -->
+  <path d="M 106 100 L 142 86 L 164 74 L 168 110 L 148 116 Z" fill="url(#riso-dots)" opacity="0.8" />
+  <path d="M 120 128 L 148 116 L 168 110 C 168 144 146 168 120 168 Z" fill="url(#riso-dots)" opacity="0.65" />
+  <!-- Halftone texture on right shoulder shadow -->
+  <path d="M 120 180 C 152 180 182 190 200 216 L 120 216 Z" fill="url(#riso-dots)" opacity="0.45" />
+
+  <!-- Layer 6: Headset with Boom Microphone -->
+  <!-- Over-head Band (Ink #1D1411) -->
+  <path d="M 64 104 C 64 62 88 40 120 40 C 152 40 176 62 176 104" fill="none" stroke="#1D1411" stroke-width="7" stroke-linecap="round" />
+  <!-- Accent Inner Headband Line (Indigo #4F46E5) -->
+  <path d="M 72 100 C 72 68 92 48 120 48 C 148 48 168 68 168 100" fill="none" stroke="#4F46E5" stroke-width="2" />
+
+  <!-- Left Ear Cup (Viewer Left) -->
+  <rect x="58" y="90" width="14" height="32" rx="7" fill="#1D1411" />
+  <rect x="61" y="94" width="8" height="24" rx="4" fill="#4F46E5" />
+
+  <!-- Right Ear Cup (Viewer Right) -->
+  <rect x="168" y="90" width="14" height="32" rx="7" fill="#1D1411" />
+  <rect x="171" y="94" width="8" height="24" rx="4" fill="#FEBE9B" />
+
+  <!-- Boom Arm curving from left ear toward mouth center -->
+  <path d="M 65 112 C 65 142 86 150 114 150" fill="none" stroke="#1D1411" stroke-width="4.5" stroke-linecap="round" />
+  <!-- Indigo accent strip on boom mic arm -->
+  <path d="M 76 128 C 84 142 96 146 110 146" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" />
+
+  <!-- Microphone Capsule -->
+  <rect x="110" y="145" width="14" height="10" rx="4" fill="#1D1411" />
+  <circle cx="117" cy="150" r="2.2" fill="#FE8B65" />
+</svg>
