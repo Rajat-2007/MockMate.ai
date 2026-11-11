@@ -87,7 +87,7 @@ async def check_redis(settings: Settings) -> DependencyCheck:
             detail=_summarise(error),
         )
     finally:
-        await client.aclose()
+        await client.close()
 
     return DependencyCheck(
         configured=True,

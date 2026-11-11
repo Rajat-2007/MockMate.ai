@@ -119,11 +119,12 @@ async def record_interview(
             InterviewUsage.usage_month == current_month(),
         )
         .values(count=InterviewUsage.count + 1)
+        .returning(InterviewUsage.user_id)
     )
     if limit is not None:
         statement = statement.where(InterviewUsage.count < limit)
     result = await db.execute(statement)
-    if result.rowcount != 1:
+    if result.scalar_one_or_none() is None:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

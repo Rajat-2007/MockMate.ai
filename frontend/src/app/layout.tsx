@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Kumbh_Sans, Share_Tech_Mono } from "next/font/google";
+import type { ReactNode } from "react";
 
 import { AppProviders } from "@/components/providers/app-providers";
 import { siteConfig } from "@/config/site";
@@ -61,7 +62,7 @@ export const viewport: Viewport = {
   colorScheme: "light",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"

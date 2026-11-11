@@ -18,6 +18,7 @@ from app.schemas.billing import (
     CreateOrderResponse,
     PaymentStatusResponse,
     PaymentVerifiedResponse,
+    PlanSlug,
     VerifyPaymentRequest,
 )
 from app.services.billing import (
@@ -166,6 +167,17 @@ async def verify_payment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Payment order was not found for this account.",
         )
+    plan: PlanSlug
+    if order.plan_slug == "starter":
+        plan = "starter"
+    elif order.plan_slug == "pro":
+        plan = "pro"
+    else:
+        logger.error("Payment order has an unsupported plan: %s", order.plan_slug)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="This payment order contains an unsupported plan.",
+        )
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(20)) as client:
@@ -202,7 +214,7 @@ async def verify_payment(
 
     subscription = await activate_paid_order(db, order)
     return PaymentVerifiedResponse(
-        plan=order.plan_slug, expires_at=subscription.expires_at
+        plan=plan, expires_at=subscription.expires_at
     )
 
 
