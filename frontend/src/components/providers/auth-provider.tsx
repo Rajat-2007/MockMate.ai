@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authApi, type TokenResponse, type User, type UserProfile } from "@/lib/api/auth";
+import { useLocalStorageSnapshot } from "@/lib/use-local-storage-snapshot";
 
 interface AuthContextType {
   user: User | null;
@@ -21,60 +22,68 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function parseStoredValue<T>(value: string | null | undefined): T | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const storedToken = useLocalStorageSnapshot("mockmate_token");
+  const storedUser = parseStoredValue<User>(
+    useLocalStorageSnapshot("mockmate_user"),
+  );
+  const storedProfile = parseStoredValue<UserProfile>(
+    useLocalStorageSnapshot("mockmate_profile"),
+  );
+  const [userValue, setUser] = useState<User | null | undefined>(undefined);
+  const [profileValue, setProfile] = useState<UserProfile | null | undefined>(
+    undefined,
+  );
+  const [tokenValue, setToken] = useState<string | null | undefined>(undefined);
+  const [isRestoring, setIsRestoring] = useState(true);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const router = useRouter();
+  const user = userValue === undefined ? storedUser : userValue;
+  const profile = profileValue === undefined ? storedProfile : profileValue;
+  const token = tokenValue === undefined ? storedToken ?? null : tokenValue;
+  const isLoading =
+    storedToken === undefined ||
+    (Boolean(storedToken) && isRestoring) ||
+    isAuthenticating;
 
-  // Load stored token & user on mount
   useEffect(() => {
-    const savedToken = localStorage.getItem("mockmate_token");
-    const savedUser = localStorage.getItem("mockmate_user");
-    const savedProfile = localStorage.getItem("mockmate_profile");
-
-    if (savedToken) {
-      setToken(savedToken);
-      if (savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-        } catch {
-          // ignore parsing error
-        }
-      }
-      if (savedProfile) {
-        try {
-          setProfile(JSON.parse(savedProfile));
-        } catch {
-          // ignore parsing error
-        }
-      }
-      // Re-fetch current user from API in background
-      authApi
-        .me()
-        .then((fetchedUser) => {
-          setUser(fetchedUser);
-          localStorage.setItem("mockmate_user", JSON.stringify(fetchedUser));
-          return authApi.getProfile();
-        })
-        .then((fetchedProfile) => {
-          setProfile(fetchedProfile);
-          localStorage.setItem("mockmate_profile", JSON.stringify(fetchedProfile));
-        })
-        .catch(() => {
-          // Keep offline/saved user if backend unavailable
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    } else {
-      setIsLoading(false);
+    if (!storedToken) {
+      return;
     }
-  }, []);
+
+    authApi
+      .me()
+      .then((fetchedUser) => {
+        setUser(fetchedUser);
+        localStorage.setItem("mockmate_user", JSON.stringify(fetchedUser));
+        return authApi.getProfile();
+      })
+      .then((fetchedProfile) => {
+        setProfile(fetchedProfile);
+        localStorage.setItem("mockmate_profile", JSON.stringify(fetchedProfile));
+      })
+      .catch(() => {
+        // Keep offline/saved user if backend unavailable
+      })
+      .finally(() => {
+        setIsRestoring(false);
+      });
+  }, [storedToken]);
 
   const login = async (email: string, password: string) => {
-    setIsLoading(true);
+    setIsAuthenticating(true);
     try {
       const response = await authApi.login({ email, password });
       setToken(response.access_token);
@@ -104,12 +113,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       return response;
     } finally {
-      setIsLoading(false);
+      setIsAuthenticating(false);
     }
   };
 
   const signup = async (fullName: string, email: string, password: string) => {
-    setIsLoading(true);
+    setIsAuthenticating(true);
     try {
       const response = await authApi.signup({ full_name: fullName, email, password });
       setToken(response.access_token);
@@ -129,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("mockmate_user", JSON.stringify(userObj));
       return response;
     } finally {
-      setIsLoading(false);
+      setIsAuthenticating(false);
     }
   };
 

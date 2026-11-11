@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, Suspense } from "react";
+import { useMemo, use, Suspense } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -25,6 +25,7 @@ import { Logo } from "@/components/layout/logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useLocalStorageSnapshot } from "@/lib/use-local-storage-snapshot";
 import {
   evaluateInterviewAnswers,
   type InterviewAnswer,
@@ -77,21 +78,20 @@ function InterviewReportInner({
   const resolvedParams = use(params);
   const sessionId = resolvedParams.sessionId;
   const { profile } = useAuth();
-  const [sessionData, setSessionData] = useState<StoredSessionData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const savedSession = useLocalStorageSnapshot(`mockmate_session_${sessionId}`);
+  const isLoading = savedSession === undefined;
+  const sessionData = useMemo(() => {
+    if (!savedSession) {
+      return null;
+    }
 
-  useEffect(() => {
     try {
-      const saved = localStorage.getItem(`mockmate_session_${sessionId}`);
-      if (saved) {
-        setSessionData(JSON.parse(saved) as StoredSessionData);
-      }
+      return JSON.parse(savedSession) as StoredSessionData;
     } catch (error) {
       console.error("Could not load interview report:", error);
-    } finally {
-      setIsLoading(false);
+      return null;
     }
-  }, [sessionId]);
+  }, [savedSession]);
 
   const answers = Array.isArray(sessionData?.answers) ? sessionData.answers : [];
   const generatedEvaluation =

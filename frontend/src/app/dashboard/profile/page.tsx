@@ -1,46 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CheckCircle2, GraduationCap, Loader2, Save, User } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Loader2, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/components/providers/auth-provider";
-import { authApi, type AcademicOptions } from "@/lib/api/auth";
 
 export default function ProfilePage() {
+  const { isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+        <Loader2 className="mr-2 size-4 animate-spin" /> Loading profile...
+      </div>
+    );
+  }
+
+  return <ProfileForm />;
+}
+
+function ProfileForm() {
   const { user, profile, updateProfile } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState(false);
 
   // Form states
   const [fullName, setFullName] = useState(user?.full_name || "");
-  const [academicStream, setAcademicStream] = useState(profile?.academic_stream || "engineering");
+  const academicStream = profile?.academic_stream || "engineering";
   const [course, setCourse] = useState(profile?.course || "B.Tech");
   const [specialization, setSpecialization] = useState(profile?.specialization || "Computer Science");
   const [college, setCollege] = useState(profile?.college || "");
   const [currentYear, setCurrentYear] = useState(profile?.current_year || "Final Year Student");
-  const [experienceLevel, setExperienceLevel] = useState(profile?.experience_level || "Fresher / Recent Graduate");
+  const experienceLevel = profile?.experience_level || "Fresher / Recent Graduate";
   const [targetRole, setTargetRole] = useState(profile?.target_role || "Software Engineer");
   const [careerGoal, setCareerGoal] = useState(profile?.career_goal || "");
   const [preferredLanguage, setPreferredLanguage] = useState(profile?.preferred_language || "English");
-
-  useEffect(() => {
-    if (user?.full_name) setFullName(user.full_name);
-    if (profile) {
-      if (profile.academic_stream) setAcademicStream(profile.academic_stream);
-      if (profile.course) setCourse(profile.course);
-      if (profile.specialization) setSpecialization(profile.specialization);
-      if (profile.college) setCollege(profile.college);
-      if (profile.current_year) setCurrentYear(profile.current_year);
-      if (profile.experience_level) setExperienceLevel(profile.experience_level);
-      if (profile.target_role) setTargetRole(profile.target_role);
-      if (profile.career_goal) setCareerGoal(profile.career_goal);
-      if (profile.preferred_language) setPreferredLanguage(profile.preferred_language);
-    }
-  }, [user, profile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
