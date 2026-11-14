@@ -1,13 +1,12 @@
-"""Razorpay order verification and subscription activation."""
+"""Billing quotas, Cashfree webhook verification, and subscription activation."""
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
-import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
@@ -17,8 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.models.billing import InterviewUsage, PaymentOrder, Subscription
 from app.models.user import User, UserRole
-
-logger = logging.getLogger(__name__)
 
 PLAN_PRICES_INR = {"starter": 149, "pro": 499}
 PLAN_LIMITS = {"free": 4, "starter": 20, "pro": 60}
@@ -38,12 +35,9 @@ def is_founder(settings: Settings, user: User) -> bool:
     )
 
 
-async def active_subscription(
-    db: AsyncSession, user_id: uuid.UUID
-) -> Subscription | None:
+async def active_subscription(db: AsyncSession, user_id: uuid.UUID) -> Subscription | None:
     result = await db.execute(
-        select(Subscription)
-        .where(Subscription.user_id == user_id)
+        select(Subscription).where(Subscription.user_id == user_id)
         .order_by(Subscription.created_at.desc())
     )
     now = datetime.now(UTC)
@@ -56,9 +50,7 @@ async def active_subscription(
     return None
 
 
-async def usage_for_month(
-    db: AsyncSession, user_id: uuid.UUID
-) -> InterviewUsage | None:
+async def usage_for_month(db: AsyncSession, user_id: uuid.UUID) -> InterviewUsage | None:
     result = await db.execute(
         select(InterviewUsage).where(
             InterviewUsage.user_id == user_id,
@@ -75,10 +67,8 @@ async def check_interview_quota(
     plan = subscription.plan_slug if subscription else "free"
     usage = await usage_for_month(db, user.id)
     used = usage.count if usage else 0
-
     if is_founder(settings, user):
         return "founder", used, None, None
-
     limit = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
     return plan, used, limit, subscription.expires_at if subscription else None
 
@@ -90,28 +80,20 @@ async def enforce_interview_quota(
     if limit is not None and used >= limit:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"You have used all {limit} {plan} interviews for this month. "
-                "Upgrade your plan or try again next month."
-            ),
+            detail=f"You have used all {limit} {plan} interviews for this month. Upgrade your plan or try again next month.",
         )
     return plan, used, limit, expires_at
 
 
-async def record_interview(
-    db: AsyncSession, user_id: uuid.UUID, limit: int | None
-) -> None:
+async def record_interview(db: AsyncSession, user_id: uuid.UUID, limit: int | None) -> None:
     usage = await usage_for_month(db, user_id)
     if usage is None:
-        db.add(
-            InterviewUsage(user_id=user_id, usage_month=current_month(), count=1)
-        )
+        db.add(InterviewUsage(user_id=user_id, usage_month=current_month(), count=1))
         try:
             await db.commit()
             return
         except IntegrityError:
             await db.rollback()
-
     statement = (
         update(InterviewUsage)
         .where(
@@ -128,45 +110,31 @@ async def record_interview(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"You have used all {limit} interviews for this month. "
-                "Upgrade your plan or try again next month."
-            ),
+            detail=f"You have used all {limit} interviews for this month. Upgrade your plan or try again next month.",
         )
     await db.commit()
 
 
-def razorpay_enabled(settings: Settings) -> bool:
-    return bool(
-        settings.razorpay_key_id
-        and settings.razorpay_key_secret
-        and settings.razorpay_webhook_secret
-    )
+def cashfree_enabled(settings: Settings) -> bool:
+    return bool(settings.cashfree_client_id and settings.cashfree_client_secret)
 
 
-def verify_checkout_signature(
-    settings: Settings, order_id: str, payment_id: str, signature: str
+def verify_cashfree_webhook(
+    settings: Settings, body: bytes, signature: str, timestamp: str
 ) -> bool:
-    expected = hmac.new(
-        settings.razorpay_key_secret.encode(),
-        f"{order_id}|{payment_id}".encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
-
-
-def verify_webhook_signature(settings: Settings, body: bytes, signature: str) -> bool:
-    if not settings.razorpay_webhook_secret:
+    if not settings.cashfree_client_secret or not signature or not timestamp:
         return False
-    expected = hmac.new(
-        settings.razorpay_webhook_secret.encode(), body, hashlib.sha256
-    ).hexdigest()
+    signed_payload = timestamp.encode("utf-8") + body
+    digest = hmac.new(
+        settings.cashfree_client_secret.encode("utf-8"),
+        signed_payload,
+        hashlib.sha256,
+    ).digest()
+    expected = base64.b64encode(digest).decode("ascii")
     return hmac.compare_digest(expected, signature)
 
 
-async def activate_paid_order(
-    db: AsyncSession, order: PaymentOrder
-) -> Subscription:
+async def activate_paid_order(db: AsyncSession, order: PaymentOrder) -> Subscription:
     if order.status == "paid":
         result = await db.execute(
             select(Subscription).where(Subscription.payment_order_id == order.id)
@@ -196,9 +164,7 @@ async def activate_paid_order(
     except IntegrityError:
         await db.rollback()
         result = await db.execute(
-            select(Subscription).where(
-                Subscription.payment_order_id == payment_order_id
-            )
+            select(Subscription).where(Subscription.payment_order_id == payment_order_id)
         )
         existing_subscription = result.scalar_one_or_none()
         if existing_subscription is None:
@@ -206,11 +172,3 @@ async def activate_paid_order(
         return existing_subscription
     await db.refresh(subscription)
     return subscription
-
-
-def payment_entity(payload: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        entity = payload["payload"]["payment"]["entity"]
-    except (KeyError, TypeError):
-        return None
-    return entity if isinstance(entity, dict) else None
