@@ -1,11 +1,14 @@
-"""UPI-enabled checkout and server-verified plan activation."""
+"""Cashfree checkout and server-verified subscription activation."""
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
+from decimal import Decimal, InvalidOperation
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -24,34 +27,55 @@ from app.schemas.billing import (
 from app.services.billing import (
     PLAN_PRICES_INR,
     activate_paid_order,
+    cashfree_enabled,
     check_interview_quota,
     is_founder,
-    payment_entity,
-    razorpay_enabled,
-    verify_checkout_signature,
-    verify_webhook_signature,
+    verify_cashfree_webhook,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _cashfree_headers(settings: SettingsDep) -> dict[str, str]:
+    return {
+        "x-client-id": settings.cashfree_client_id,
+        "x-client-secret": settings.cashfree_client_secret,
+        "x-api-version": settings.cashfree_api_version,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+def _valid_phone(value: str | None) -> str | None:
+    if not value:
+        return None
+    digits = re.sub(r"\D", "", value)
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    return digits if len(digits) == 10 else None
+
+
+def _amount_matches(value: Any, expected_paise: int) -> bool:
+    try:
+        return Decimal(str(value)) == (Decimal(expected_paise) / Decimal(100))
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+
+
 @router.get("/status", response_model=PaymentStatusResponse)
 async def billing_status(
     db: SessionDep, current_user: CurrentUserDep, settings: SettingsDep
 ) -> PaymentStatusResponse:
-    plan, used, limit, expires_at = await check_interview_quota(
-        db, settings, current_user
-    )
-    founder = plan == "founder"
+    plan, used, limit, expires_at = await check_interview_quota(db, settings, current_user)
     return PaymentStatusResponse(
         plan=plan,
-        is_founder=founder,
+        is_founder=plan == "founder",
         interviews_used=used,
         interview_limit=limit,
         remaining_interviews=max(limit - used, 0) if limit is not None else None,
         subscription_expires_at=expires_at,
-        payment_configured=razorpay_enabled(settings),
+        payment_configured=cashfree_enabled(settings),
     )
 
 
@@ -63,75 +87,85 @@ async def create_order(
     settings: SettingsDep,
 ) -> CreateOrderResponse:
     if is_founder(settings, current_user):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Founder access already includes all paid features.",
-        )
-    if not razorpay_enabled(settings):
+        raise HTTPException(status_code=400, detail="Founder access already includes all paid features.")
+    if not cashfree_enabled(settings):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "UPI checkout is not fully configured. Set Razorpay merchant keys "
-                "and the webhook secret on the backend."
-            ),
+            detail="Cashfree checkout is not configured. Add Cashfree sandbox credentials to the backend environment.",
+        )
+
+    profile = current_user.profile
+    phone = _valid_phone(profile.phone if profile else None)
+    if not phone:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Add a valid 10-digit mobile number in your profile before checkout.",
         )
 
     amount_paise = PLAN_PRICES_INR[data.plan] * 100
+    order_id = f"mm_{uuid.uuid4().hex}"
+    customer_name = re.sub(r"[^A-Za-z0-9 ]", "", current_user.full_name or "MockMate User").strip()[:100] or "MockMate User"
+    frontend_base = settings.frontend_base_url.rstrip("/")
+    payload = {
+        "order_id": order_id,
+        "order_amount": amount_paise / 100,
+        "order_currency": "INR",
+        "customer_details": {
+            "customer_id": f"mm_{current_user.id.hex}",
+            "customer_name": customer_name,
+            "customer_email": current_user.email,
+            "customer_phone": phone,
+        },
+        "order_meta": {
+            "return_url": f"{frontend_base}/dashboard/billing?order_id={{order_id}}"
+        },
+        "order_note": f"MockMate {data.plan.title()} monthly subscription",
+    }
+
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(20)) as client:
             response = await client.post(
-                f"{settings.razorpay_base_url.rstrip('/')}/orders",
-                auth=httpx.BasicAuth(
-                    settings.razorpay_key_id, settings.razorpay_key_secret
-                ),
-                json={
-                    "amount": amount_paise,
-                    "currency": "INR",
-                    "receipt": uuid.uuid4().hex,
-                    "notes": {
-                        "user_id": str(current_user.id),
-                        "plan": data.plan,
-                    },
-                },
+                f"{settings.cashfree_base_url.rstrip('/')}/orders",
+                headers=_cashfree_headers(settings),
+                json=payload,
             )
             response.raise_for_status()
             provider_order = response.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("Razorpay order creation failed: %s", type(exc).__name__)
+        logger.warning("Cashfree order creation failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not start UPI checkout. Please try again.",
+            detail="Could not start secure checkout. Please try again.",
         ) from exc
 
-    gateway_order_id = (
-        provider_order.get("id") if isinstance(provider_order, dict) else None
-    )
+    session_id = provider_order.get("payment_session_id") if isinstance(provider_order, dict) else None
+    returned_order_id = provider_order.get("order_id") if isinstance(provider_order, dict) else None
     if (
-        not isinstance(gateway_order_id, str)
-        or not gateway_order_id
-        or provider_order.get("amount") != amount_paise
-        or provider_order.get("currency") != "INR"
+        not isinstance(session_id, str) or not session_id
+        or returned_order_id != order_id
+        or not _amount_matches(provider_order.get("order_amount"), amount_paise)
+        or provider_order.get("order_currency") != "INR"
     ):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The payment provider returned an invalid order.",
+            detail="Cashfree returned an invalid order response.",
         )
 
-    db.add(
-        PaymentOrder(
-            user_id=current_user.id,
-            gateway_order_id=gateway_order_id,
-            plan_slug=data.plan,
-            amount_paise=amount_paise,
-        )
-    )
+    db.add(PaymentOrder(
+        user_id=current_user.id,
+        gateway_order_id=order_id,
+        plan_slug=data.plan,
+        amount_paise=amount_paise,
+    ))
     await db.commit()
+
+    mode = "production" if "api.cashfree.com" in settings.cashfree_base_url else "sandbox"
     return CreateOrderResponse(
-        key_id=settings.razorpay_key_id,
-        order_id=gateway_order_id,
+        order_id=order_id,
+        payment_session_id=session_id,
+        mode=mode,
         amount=amount_paise,
         plan=data.plan,
-        company_name="TRA Services Pvt Ltd",
     )
 
 
@@ -142,80 +176,57 @@ async def verify_payment(
     current_user: CurrentUserDep,
     settings: SettingsDep,
 ) -> PaymentVerifiedResponse:
-    if not razorpay_enabled(settings):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="UPI checkout is not configured.",
-        )
-    if not verify_checkout_signature(
-        settings, data.order_id, data.payment_id, data.signature
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment verification failed. No plan was activated.",
-        )
+    if not cashfree_enabled(settings):
+        raise HTTPException(status_code=503, detail="Cashfree checkout is not configured.")
 
-    result = await db.execute(
-        select(PaymentOrder).where(
-            PaymentOrder.gateway_order_id == data.order_id,
-            PaymentOrder.user_id == current_user.id,
-        )
-    )
+    result = await db.execute(select(PaymentOrder).where(
+        PaymentOrder.gateway_order_id == data.order_id,
+        PaymentOrder.user_id == current_user.id,
+    ))
     order = result.scalar_one_or_none()
     if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Payment order was not found for this account.",
-        )
-    plan: PlanSlug
-    if order.plan_slug == "starter":
-        plan = "starter"
-    elif order.plan_slug == "pro":
-        plan = "pro"
-    else:
-        logger.error("Payment order has an unsupported plan: %s", order.plan_slug)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="This payment order contains an unsupported plan.",
-        )
+        raise HTTPException(status_code=404, detail="Payment order was not found for this account.")
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(20)) as client:
-            response = await client.get(
-                f"{settings.razorpay_base_url.rstrip('/')}/payments/{data.payment_id}",
-                auth=httpx.BasicAuth(
-                    settings.razorpay_key_id, settings.razorpay_key_secret
-                ),
+            headers = _cashfree_headers(settings)
+            base = settings.cashfree_base_url.rstrip("/")
+            encoded_order_id = quote(order.gateway_order_id, safe="")
+            order_response = await client.get(f"{base}/orders/{encoded_order_id}", headers=headers)
+            order_response.raise_for_status()
+            provider_order = order_response.json()
+            payments_response = await client.get(
+                f"{base}/orders/{encoded_order_id}/payments", headers=headers
             )
-            response.raise_for_status()
-            payment = response.json()
+            payments_response.raise_for_status()
+            payments = payments_response.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("Razorpay payment lookup failed: %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not confirm payment with the gateway. Please retry.",
-        ) from exc
+        logger.warning("Cashfree payment verification failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Could not confirm payment with Cashfree. Please retry.") from exc
 
-    if not isinstance(payment, dict):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The payment provider returned an invalid payment record.",
-        )
     if (
-        payment.get("status") != "captured"
-        or payment.get("order_id") != order.gateway_order_id
-        or payment.get("amount") != order.amount_paise
-        or payment.get("currency") != "INR"
+        not isinstance(provider_order, dict)
+        or provider_order.get("order_id") != order.gateway_order_id
+        or provider_order.get("order_currency") != "INR"
+        or not _amount_matches(provider_order.get("order_amount"), order.amount_paise)
+        or not isinstance(payments, list)
     ):
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="The gateway has not confirmed the full plan payment yet.",
-        )
+        raise HTTPException(status_code=402, detail="Cashfree order details did not match this purchase.")
+
+    successful_payment = next((
+        payment for payment in payments
+        if isinstance(payment, dict)
+        and payment.get("payment_status") == "SUCCESS"
+        and payment.get("order_id") == order.gateway_order_id
+        and payment.get("payment_currency") == "INR"
+        and _amount_matches(payment.get("payment_amount"), order.amount_paise)
+    ), None)
+    if successful_payment is None:
+        raise HTTPException(status_code=402, detail="Cashfree has not confirmed the full payment yet.")
 
     subscription = await activate_paid_order(db, order)
-    return PaymentVerifiedResponse(
-        plan=plan, expires_at=subscription.expires_at
-    )
+    plan: PlanSlug = "starter" if order.plan_slug == "starter" else "pro"
+    return PaymentVerifiedResponse(plan=plan, expires_at=subscription.expires_at)
 
 
 @router.post("/webhook", status_code=status.HTTP_204_NO_CONTENT)
@@ -223,57 +234,48 @@ async def payment_webhook(
     request: Request,
     db: SessionDep,
     settings: SettingsDep,
-    x_razorpay_signature: str = Header(default=""),
+    x_webhook_signature: str = Header(default=""),
+    x_webhook_timestamp: str = Header(default=""),
 ) -> None:
     body = await request.body()
-    if not verify_webhook_signature(settings, body, x_razorpay_signature):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid payment webhook signature.",
-        )
+    if not verify_cashfree_webhook(settings, body, x_webhook_signature, x_webhook_timestamp):
+        raise HTTPException(status_code=400, detail="Invalid Cashfree webhook signature.")
     try:
         event: dict[str, Any] = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid payment webhook payload.",
-        ) from exc
+        raise HTTPException(status_code=400, detail="Invalid payment webhook payload.") from exc
 
     if not isinstance(event, dict):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid payment webhook payload.",
-        )
-    if event.get("event") != "payment.captured":
+        raise HTTPException(status_code=400, detail="Invalid payment webhook payload.")
+    if event.get("type") != "PAYMENT_SUCCESS_WEBHOOK":
         return None
-    payment = payment_entity(event)
-    if payment is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment webhook is missing payment details.",
-        )
-    gateway_order_id = payment.get("order_id")
-    if not isinstance(gateway_order_id, str):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment webhook is missing an order identifier.",
-        )
 
-    result = await db.execute(
-        select(PaymentOrder).where(PaymentOrder.gateway_order_id == gateway_order_id)
-    )
+    data = event.get("data")
+    payment = data.get("payment") if isinstance(data, dict) else None
+    provider_order = data.get("order") if isinstance(data, dict) else None
+    if not isinstance(payment, dict) or not isinstance(provider_order, dict):
+        raise HTTPException(status_code=400, detail="Cashfree webhook is missing payment details.")
+
+    gateway_order_id = provider_order.get("order_id")
+    if not isinstance(gateway_order_id, str):
+        raise HTTPException(status_code=400, detail="Cashfree webhook is missing an order identifier.")
+
+    result = await db.execute(select(PaymentOrder).where(
+        PaymentOrder.gateway_order_id == gateway_order_id
+    ))
     order = result.scalar_one_or_none()
     if order is None:
-        logger.warning("Razorpay webhook received an unknown order")
+        logger.warning("Cashfree webhook received an unknown order")
         return None
+
     if (
-        payment.get("amount") != order.amount_paise
-        or payment.get("currency") != "INR"
-        or payment.get("status") != "captured"
+        payment.get("payment_status") != "SUCCESS"
+        or provider_order.get("order_currency") != "INR"
+        or not _amount_matches(provider_order.get("order_amount"), order.amount_paise)
+        or not _amount_matches(payment.get("payment_amount"), order.amount_paise)
+        or payment.get("payment_currency") != "INR"
     ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment webhook amount or status did not match the order.",
-        )
+        raise HTTPException(status_code=400, detail="Cashfree payment amount or status did not match the order.")
+
     await activate_paid_order(db, order)
     return None

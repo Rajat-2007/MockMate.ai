@@ -60,7 +60,7 @@ practice, and answer-by-answer feedback.
 
 ```bash
 cp .env.example .env
-# AI uses local Ollama by default; add Razorpay keys to enable paid checkout.
+# AI uses local Ollama by default; add Cashfree sandbox credentials to enable paid checkout.
 docker compose up --build
 # web:    http://localhost:3000
 # api:    http://localhost:8000/docs
@@ -120,9 +120,9 @@ alembic upgrade head --sql    # renders migration SQL without a database
 | `POST` | `/api/v1/interviews/questions` | generate a tailored question set (authenticated) |
 | `POST` | `/api/v1/interviews/evaluate` | evaluate submitted answers (authenticated) |
 | `GET` | `/api/v1/billing/status` | current plan and monthly interview quota (authenticated) |
-| `POST` | `/api/v1/billing/orders` | create a server-priced Razorpay order (authenticated) |
-| `POST` | `/api/v1/billing/verify` | verify a captured UPI payment and activate a plan (authenticated) |
-| `POST` | `/api/v1/billing/webhook` | verify Razorpay `payment.captured` webhooks |
+| `POST` | `/api/v1/billing/orders` | create a server-priced Cashfree order (authenticated) |
+| `POST` | `/api/v1/billing/verify` | query Cashfree and activate a successful payment (authenticated) |
+| `POST` | `/api/v1/billing/webhook` | verify Cashfree signed payment webhooks |
 | `GET` | `/docs` | OpenAPI UI (disabled in production) |
 
 Interview API calls use `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` from the
@@ -133,13 +133,17 @@ Ollama must be reachable from the backend container at `host.docker.internal`.
 Never add a hosted API key to a `NEXT_PUBLIC_*` variable. Speech recognition
 and synthesis depend on browser support and permissions.
 
-Paid checkout uses Razorpay-hosted UPI checkout; BHIM, Paytm, PhonePe, and
-other UPI options are presented by the gateway when available. Set
-`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` only in
-the backend environment, and configure the Razorpay webhook URL as
-`/api/v1/billing/webhook` for `payment.captured` events. The backend verifies
-the payment signature, captured status, amount, and order before activating a
-30-day subscription. Never accept a static UPI screenshot as automated proof.
+Paid checkout uses Cashfree-hosted UPI checkout; BHIM, Paytm, PhonePe,
+Google Pay, and other UPI options are presented when enabled and available. Set
+`CASHFREE_CLIENT_ID` and `CASHFREE_CLIENT_SECRET` only in the backend
+environment. Use sandbox credentials and
+`CASHFREE_BASE_URL=https://sandbox.cashfree.com/pg` for testing; production
+uses `https://api.cashfree.com/pg` after merchant approval. Configure the
+Cashfree payment webhook URL as `/api/v1/billing/webhook` for payment success
+events. The backend verifies the signed webhook and queries Cashfree for
+successful payment status, amount, and order before activating a 30-day
+subscription. A valid mobile number must be saved in the user profile for
+checkout. Never treat a static UPI screenshot as automated payment proof.
 Set `FOUNDER_EMAIL` to the owner's account. After signing up with that account,
 run `cd backend` then `python -m scripts.grant_founder_access` to explicitly
 grant it verified admin status and unlimited founder access. Founder access
@@ -168,7 +172,7 @@ list every variable with placeholder values. Production refuses to boot when
 - Adaptive in-session follow-up questions
 - Hosted speech-to-text / text-to-speech
 - Monaco editor and isolated code execution
-- Razorpay checkout and webhooks
+- Cashfree checkout and webhooks
 - Admin panel and CMS
 - Privacy policy, terms and cookie policy pages (legal review pending)
 
