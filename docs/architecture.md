@@ -121,7 +121,7 @@ Deferred, tracked per phase:
 | 6 | Resume upload, extraction, resume interviews | — |
 | 7 | Monaco editor, isolated execution | — |
 | 8 | Evaluation engine, reports, analytics | — |
-| 9 | Plans, quotas, Razorpay | — |
+| 9 | Plans, quotas, Cashfree | — |
 | 10 | Admin, CMS, SEO tooling | — |
 | 11 | Security audit, automated E2E, performance | — |
 | 12 | Deployment, India-region hosting, backups | Partial (Docker + CI done) |
