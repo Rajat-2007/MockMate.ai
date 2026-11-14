@@ -11,12 +11,12 @@ export type BillingStatus = {
 };
 
 export type CreatePaymentOrderResponse = {
-  key_id: string;
   order_id: string;
+  payment_session_id: string;
+  mode: "sandbox" | "production";
   amount: number;
   currency: "INR";
   plan: "starter" | "pro";
-  company_name: string;
 };
 
 export const billingApi = {
@@ -26,13 +26,9 @@ export const billingApi = {
       method: "POST",
       body: { plan },
     }),
-  verify: (payment: {
-    order_id: string;
-    payment_id: string;
-    signature: string;
-  }) =>
+  verify: (order_id: string) =>
     apiFetch<{ status: "active"; plan: "starter" | "pro"; expires_at: string }>(
       "/api/v1/billing/verify",
-      { method: "POST", body: payment },
+      { method: "POST", body: { order_id } },
     ),
 };
